@@ -2,7 +2,9 @@ module Main where
 
 import Control.Parallel.Strategies
 import Control.Parallel
+import Control.Monad
 import Control.Monad.ST
+import Control.Monad.Primitive
 import System.Environment
 import Data.List
 import Data.Set (toList, fromList)
@@ -20,59 +22,28 @@ ys n = ys'
  where ys' = 1 : map (\y -> 3*y `mod` n) ys'
 
 stations :: Int -> V.Vector (Int, Int)
-stations n = V.fromList . reverse . toList . fromList . ((0,0) :) . take (2*n+1) $ zip (xs n) (ys n)
+stations n = V.reverse . V.fromList . toList . fromList . ((0,0) :) . take (2*n+1) $ zip (xs n) (ys n)
+
+process :: (PrimMonad m) => (MV.MVector (PrimState m) (Int, (Int, Int)), Int) -> (Int, Int) -> m ((MV.MVector (PrimState m) (Int, (Int, Int))), Int)
+process (v, l) station = do
+  --v' <- MV.unsafeGrow v 1
+  ss <- V.unsafeFreeze v
+  let max = maximum station ss
+  MV.unsafeWrite v l (max + 1, station)
+  return (v, l+1)
+ where maximum s = V.foldl' (\max (curr, x) -> if (higherThan s x && curr > max) then curr else max) (-1)
+       --n = MV.length v
+       {-maximum = do
+         foldM (\max i -> do
+           (curr, x) <- MV.unsafeRead v i
+           return $ if (higherThan station x && curr > max) then curr else max) (-1) [0..l-1]-}
 
 {-
-stations :: Int -> [(Int, (Int, Int))]
-stations n = reverse . sort . addValue . map head . group . --nub .
-               sort . ((0,0) :) . take (2*n+1) $ zip (xs n) (ys n)
-
-addValue :: [(Int, Int)] -> [(Int, (Int, Int))]
-addValue ss = [ (value, current)
-              | current <- ss
-              , let value = length . filter (higherThan current) $ ss
-              ]
-
-genPaths :: [(Int, (Int, Int))] -> [[(Int, (Int, Int))]]
-genPaths [] = [[]]
-genPaths ss = [ current: path
-              | let maxValue = fst . head $ ss
-              , current <- takeWhile ((== maxValue) . fst) $ ss
-              , let higherStations = filter (higherThan (snd current) . snd)
-              , path <- genPaths $ higherStations ss
-              ]
-
-genLengths :: Int -> [(Int, (Int, Int))] -> [Int]
-genLengths acc [] = [acc]
-genLengths acc ss = [ length
-                  | current <- ss
-                  , let higherStations = filter (higherThan (snd current) . snd)
-                  , let length = maximum $! genLengths (acc+1) $ higherStations ss
-                  ]
-
-genLengths :: [(Int, (Int, Int))] -> [(Int, (Int, Int))]
-genLengths = foldr process []
- where
-  process (_, s) ss =
-    let elements = filter (higherThan s . snd) ss
-        length = case elements of
-                   [] -> -1
-                   --_  -> maximum $ map fst elements
-                   _  -> fst $ maximum elements
-                   --((l,_):xs)  -> l
-    in (length+1, s):ss
--}
-
 genLengths :: V.Vector (Int, Int) -> V.Vector (Int, (Int, Int))
 genLengths = V.foldl' process V.empty
  where
   process ss s =
-    let --elements = filter (higherThan s) ss
-        --length = case elements of
-        --           [] -> -1
-                   --_  -> maximum $ map fst elements
-        --           _  -> fst $ maximum elements
-                   --((l,_):xs)  -> l
+    let
         length :: Int
         length = V.foldl' (\max (curr, x) -> if (higherThan s x && curr > max) then curr else max) (-1) ss
         new = runST $ do
@@ -81,12 +52,7 @@ genLengths = V.foldl' process V.empty
                 MV.write v' (V.length ss) (length+1, s)
                 V.unsafeFreeze v'
     in new
- {-V.modify (\v -> do
-         v' <- MV.grow v 1
-         MV.write v' (MV.length v -1) (length+1, s)
-         --V.unsafeFreeze v'
-       ) ss-}
-
+-}
 higherThan (x1, y1) (x2, y2) = (x2 >= x1 && y2 > y1) || (x2 > x1 && y2 >= y1)
 
 -- |
@@ -100,8 +66,14 @@ higherThan (x1, y1) (x2, y2) = (x2 >= x1 && y2 > y1) || (x2 > x1 && y2 >= y1)
 -- >>> maxPathLength 10000
 -- 48
 -- 
---maxPathLength = (flip (-) 1) . maximum . map length . genPaths . stations
-maxPathLength = fst . V.last . genLengths . stations
+maxPathLength :: Int -> Int
+--maxPathLength = fst . V.last . genLengths . stations
+maxPathLength n = fst . V.last $ runST $ do
+                  let ss = stations n
+                  v <- MV.replicate (V.length ss) (0, (0, 0))
+                  (mv, l) <- V.foldM' process (v, 0) ss
+                  V.unsafeFreeze mv
+--                  return $ MV.unsafeRead mv 0
 
 --plotStations = GP.plotPathStyle [GP.Key Nothing] (GP.PlotStyle GP.Points $ GP.CustomStyle [GP.PointSize 5]) . map snd . stations
 
