@@ -5,3 +5,9 @@ cabal-dev
 *.chi
 *.chs.h
 .virthualenv
+*.*~
+*.prof
+*.gp
+*.csv
+*.eventlog
+
