@@ -63,8 +63,8 @@ process :: (PrimMonad m) => MV.MVector (PrimState m) (Distance Int) -> Station I
 process v s@(Station pos l) = do
   max <- findMax v s $ l - 1
   let current = Distance max pos
-  MV.unsafeWrite v l $! current
-  place v current l
+  --MV.unsafeWrite v l $! current
+  place v l current
 {-# INLINE process #-}
 
 findMax v (Station !pos _) i = findMax' i
@@ -80,22 +80,23 @@ findMax v (Station !pos _) i = findMax' i
 {-# INLINE findMax #-}
 
 place :: (PrimMonad m) =>
-     MV.MVector (PrimState m) (Distance Int) -> Distance Int -> Int -> m ()
-place v max@(Distance !val1 _) i = place' i
+     MV.MVector (PrimState m) (Distance Int) -> Int -> Distance Int -> m ()
+place v 0 max = MV.unsafeWrite v 0 $! max
+place v l max@(Distance !val1 _) = place' 0 l
  where 
-  place' !i = do
-    let j = i - 1
-    if j < 0
-    then return ()
-    else do
-      curr@(Distance val2 _) <- MV.unsafeRead v j
-      if val2 > val1
-      then do
-        MV.unsafeWrite v j $! max
-        MV.unsafeWrite v i $! curr
-        place' j
-      else return ()
-  n = MV.length v
+  place' !i !j = do
+    let k = (i + j) `quot` 2
+    let len = l - k
+    Distance val2 _ <- MV.unsafeRead v k
+    if val2 == val1
+    then do
+      MV.unsafeMove (MV.unsafeTake len . MV.unsafeDrop (k+2) $ v) (MV.unsafeTake len . MV.unsafeDrop (k+1) $ v)
+      MV.unsafeWrite v (k+1) $! max
+    else if k == i
+         then MV.unsafeWrite v (k+1) $! max
+         else if val2 < val1
+              then place' k j
+              else place' i k
 {-# INLINE place #-}
 
 higherThan (Position x1 y1) (Position x2 y2) = (x2 >= x1 && y2 >= y1) --- || (x2 > x1 && y2 >= y1)
