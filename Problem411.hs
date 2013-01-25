@@ -12,6 +12,9 @@ import qualified Data.IntMap.Strict as M
 data Position a = Position {-# UNPACK #-} !a {-# UNPACK #-} !a
   deriving (Eq, Ord, Show)
 
+getY (Position _ y) = y
+{-# INLINE getY #-}
+
 xs :: Int -> [Int]
 xs n = xs'
  where xs' = 1 : map (\x -> 2*x `mod` n) xs'
@@ -22,12 +25,12 @@ ys n = ys'
  where ys' = 1 : map (\y -> 3*y `mod` n) ys'
 {-# INLINE ys #-}
 
-stations :: Int -> [Position Int]
-stations n = toList . fromList . ((Position 0 0) :) . take (2*n+1) $ zipWith Position (xs n) (ys n)
+stations :: Int -> [Int]
+stations n = map getY . toList . fromList . ((Position 0 0) :) . take (2*n+1) $ zipWith Position (xs n) (ys n)
 {-# INLINE stations #-}
 
-process :: M.IntMap Int -> Position Int -> M.IntMap Int
-process m (Position _ y) =
+process :: M.IntMap Int -> Int -> M.IntMap Int
+process m y =
   let Just (_, max) = M.lookupLE y m
       newVal = max+1
       m' = M.insert y newVal m
