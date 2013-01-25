@@ -4,49 +4,14 @@ module Main where
 
 import Control.Parallel.Strategies
 import Control.Parallel
-import Control.Monad
-import Control.Monad.ST
-import Control.Monad.Primitive
 import System.Environment
 import Data.List
 import Data.Set (toList, fromList)
-import qualified Data.Vector.Generic
-import qualified Data.Vector.Generic.Mutable
-import Data.Vector.Unboxed.Deriving
-import qualified Data.Vector.Unboxed as V
-import Data.Vector.Unboxed (Unbox)
-import qualified Data.Vector.Unboxed.Mutable as MV
+import qualified Data.IntMap.Strict as M
 
 data Position a = Position {-# UNPACK #-} !a {-# UNPACK #-} !a
   deriving (Eq, Ord, Show)
-{-
-derivingUnbox "Position"
-    [t| (Unbox a) => Position a -> (a, a) |]
-    [| \ (Position x y) -> (x, y) |]
-    [| \ (x, y) -> Position x y |]
 
-
-
-data Station a = Station {-# UNPACK #-} !(Position a) {-# UNPACK #-} !Int
-  deriving (Eq, Ord, Show)
-
-derivingUnbox "Station"
-    [t| (Unbox a) => Station a -> (Position a, Int) |]
-    [| \ (Station x y) -> (x, y) |]
-    [| \ (x, y) -> Station x y |]
-
-data Distance a = Distance {-# UNPACK #-} !Int {-# UNPACK #-} !(Position a)
-  deriving (Eq, Ord, Show)
-
-derivingUnbox "Distance"
-    [t| (Unbox a) => Distance a -> (Int, Position a) |]
-    [| \ (Distance x y) -> (x, y) |]
-    [| \ (x, y) -> Distance x y |]
-
-
-distance (Distance dist _) = dist
-{-# INLINE distance #-}
--}
 xs :: Int -> [Int]
 xs n = xs'
  where xs' = 1 : map (\x -> 2*x `mod` n) xs'
@@ -61,30 +26,21 @@ stations :: Int -> [Position Int]
 stations n = toList . fromList . ((Position 0 0) :) . take (2*n+1) $ zipWith Position (xs n) (ys n)
 {-# INLINE stations #-}
 
-process :: (PrimMonad m) => MV.MVector (PrimState m) Int -> Position Int -> m ()
-process v (Position _ y) = do
-  val <- findMax v y
-  MV.unsafeWrite v y (val+1)
-  --updatePath v next
+process :: M.IntMap Int -> Position Int -> M.IntMap Int
+process m (Position _ y) =
+  let Just (_, max) = M.lookupLE y m
+      newVal = max+1
+      m' = M.insert y newVal m
+      m'' = case M.lookupGT y m of
+              Just (k, v) -> if v>newVal then m' else M.delete k m'
+              Nothing     -> m'
+  in m''
 {-# INLINE process #-}
 
-
-findMax :: (PrimMonad m) => MV.MVector (PrimState m) Int -> Int -> m Int
-findMax v y = findMax' y 0
- where
-  findMax' (-1) max = return max
-  findMax' !i max = do
-      val <- MV.unsafeRead v i
-      if val > max
-      then findMax' (i - 1) val
-      else findMax' (i - 1) max
-{-# INLINE findMax #-}
-
-lengths n = runST $ do
-                  let ss = stations n
-                  v <- MV.replicate (n+1) 0
-                  mapM_ (process v) ss
-                  V.unsafeFreeze v
+lengths n = 
+  let ss = stations n
+      m = M.singleton 0 (-1)
+  in foldl' process m ss
 
 -- |
 -- 
@@ -98,7 +54,7 @@ lengths n = runST $ do
 -- 48
 -- 
 maxPathLength :: Int -> Int
-maxPathLength = (flip (-) 1) . V.maximum . lengths
+maxPathLength = snd . M.findMax . lengths
 
 main = do
   args <- getArgs
