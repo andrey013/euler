@@ -61,51 +61,44 @@ stations n = reverse . toList . fromList . ((Position 0 0) :) . take (2*n+1) $ z
 
 process :: (PrimMonad m) => MV.MVector (PrimState m) (Distance Int) -> Station Int -> m ()
 process v s@(Station pos l) = do
-  max <- findMax v s $ l - 1
-  let current = Distance max pos
-  --MV.unsafeWrite v l $! current
-  place v l current
+  (maxDist, maxPos) <- findMax v s $ l - 1
+  let current = Distance maxDist pos
+  place v l maxPos current
 {-# INLINE process #-}
 
 findMax v (Station !pos _) i = findMax' i
  where
   findMax' !i = do
     if i < 0
-    then return 0
+    then return (0, 0)
     else do
       (Distance curr x) <- MV.unsafeRead v i
       if higherThan pos x
-      then return $ curr + 1
+      then return (curr + 1, i)
       else findMax' $ i - 1
 {-# INLINE findMax #-}
 
 place :: (PrimMonad m) =>
-     MV.MVector (PrimState m) (Distance Int) -> Int -> Distance Int -> m ()
-place v 0 max = MV.unsafeWrite v 0 $! max
-place v l max@(Distance !val1 _) = place' 0 l
- where 
-  place' !i !j = do
-    let k = (i + j) `quot` 2
-    let len = l - k
-    Distance val2 _ <- MV.unsafeRead v k
-    if val2 == val1
+     MV.MVector (PrimState m) (Distance Int) -> Int -> Int -> Distance Int -> m ()
+place v l pos max@(Distance !val1 _) = place' pos
+ where
+  place' !i = do
+    let len = l - i
+    Distance val2 _ <- MV.read v i
+    if val2 > val1
     then do
-      MV.unsafeMove (MV.unsafeTake len . MV.unsafeDrop (k+2) $ v) (MV.unsafeTake len . MV.unsafeDrop (k+1) $ v)
-      MV.unsafeWrite v (k+1) $! max
-    else if k == i
-         then MV.unsafeWrite v (k+1) $! max
-         else if val2 < val1
-              then place' k j
-              else place' i k
+      MV.unsafeMove (MV.unsafeTake len . MV.unsafeDrop (i+1) $ v) (MV.unsafeTake len . MV.unsafeDrop (i) $ v)
+      MV.write v i $! max
+    else place' $ i+1
 {-# INLINE place #-}
 
-higherThan (Position x1 y1) (Position x2 y2) = (x2 >= x1 && y2 >= y1) --- || (x2 > x1 && y2 >= y1)
+higherThan (Position x1 y1) (Position x2 y2) = {-(x2 >= x1 && -}y2 >= y1--- ) || (x2 > x1 && y2 >= y1)
 {-# INLINE higherThan #-}
 
 lengths n = runST $ do
                   let ss = stations n
                   let l = length ss
-                  v <- MV.replicate l $ Distance 0 $ Position 0 0
+                  v <- MV.replicate (l) $ Distance (maxBound) $ Position 0 0
                   mapM_ (process v) $ zipWith Station ss $ [0..l-1]
                   V.unsafeFreeze v
 
