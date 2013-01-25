@@ -19,11 +19,13 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 
 data Position a = Position {-# UNPACK #-} !a {-# UNPACK #-} !a
   deriving (Eq, Ord, Show)
-
+{-
 derivingUnbox "Position"
     [t| (Unbox a) => Position a -> (a, a) |]
     [| \ (Position x y) -> (x, y) |]
     [| \ (x, y) -> Position x y |]
+
+
 
 data Station a = Station {-# UNPACK #-} !(Position a) {-# UNPACK #-} !Int
   deriving (Eq, Ord, Show)
@@ -44,7 +46,7 @@ derivingUnbox "Distance"
 
 distance (Distance dist _) = dist
 {-# INLINE distance #-}
-
+-}
 xs :: Int -> [Int]
 xs n = xs'
  where xs' = 1 : map (\x -> 2*x `mod` n) xs'
@@ -56,50 +58,32 @@ ys n = ys'
 {-# INLINE ys #-}
 
 stations :: Int -> [Position Int]
-stations n = reverse . toList . fromList . ((Position 0 0) :) . take (2*n+1) $ zipWith Position (xs n) (ys n)
+stations n = toList . fromList . ((Position 0 0) :) . take (2*n+1) $ zipWith Position (xs n) (ys n)
 {-# INLINE stations #-}
 
-process :: (PrimMonad m) => MV.MVector (PrimState m) (Distance Int) -> Station Int -> m ()
-process v s@(Station pos l) = do
-  (maxDist, maxPos) <- findMax v s $ l - 1
-  let current = Distance maxDist pos
-  place v l maxPos current
+process :: (PrimMonad m) => MV.MVector (PrimState m) Int -> Position Int -> m ()
+process v (Position _ y) = do
+  val <- findMax v y
+  MV.unsafeWrite v y (val+1)
+  --updatePath v next
 {-# INLINE process #-}
 
-findMax v (Station !pos _) i = findMax' i
+
+findMax :: (PrimMonad m) => MV.MVector (PrimState m) Int -> Int -> m Int
+findMax v y = findMax' y 0
  where
-  findMax' !i = do
-    if i < 0
-    then return (0, 0)
-    else do
-      (Distance curr x) <- MV.unsafeRead v i
-      if higherThan pos x
-      then return (curr + 1, i)
-      else findMax' $ i - 1
+  findMax' (-1) max = return max
+  findMax' !i max = do
+      val <- MV.unsafeRead v i
+      if val > max
+      then findMax' (i - 1) val
+      else findMax' (i - 1) max
 {-# INLINE findMax #-}
-
-place :: (PrimMonad m) =>
-     MV.MVector (PrimState m) (Distance Int) -> Int -> Int -> Distance Int -> m ()
-place v l pos max@(Distance !val1 _) = place' pos
- where
-  place' !i = do
-    let len = l - i
-    Distance val2 _ <- MV.read v i
-    if val2 > val1
-    then do
-      MV.unsafeMove (MV.unsafeTake len . MV.unsafeDrop (i+1) $ v) (MV.unsafeTake len . MV.unsafeDrop (i) $ v)
-      MV.write v i $! max
-    else place' $ i+1
-{-# INLINE place #-}
-
-higherThan (Position x1 y1) (Position x2 y2) = {-(x2 >= x1 && -}y2 >= y1--- ) || (x2 > x1 && y2 >= y1)
-{-# INLINE higherThan #-}
 
 lengths n = runST $ do
                   let ss = stations n
-                  let l = length ss
-                  v <- MV.replicate (l) $ Distance (maxBound) $ Position 0 0
-                  mapM_ (process v) $ zipWith Station ss $ [0..l-1]
+                  v <- MV.replicate (n+1) 0
+                  mapM_ (process v) ss
                   V.unsafeFreeze v
 
 -- |
@@ -114,7 +98,7 @@ lengths n = runST $ do
 -- 48
 -- 
 maxPathLength :: Int -> Int
-maxPathLength = distance . V.last . lengths
+maxPathLength = (flip (-) 1) . V.maximum . lengths
 
 main = do
   args <- getArgs
