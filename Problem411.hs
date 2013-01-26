@@ -24,17 +24,19 @@ getY (Position _ y) = y
 {-# INLINE getY #-}
 
 stationsList n = iterate (\(Position x y) -> Position (2*x `mod` n) (3*y `mod` n)) (Position 1 1)
-{-
-fillSetWithoutCycles = fillSet' S.empty 0
+
+fillSetWithoutCycles n = fillSet' S.empty 0
  where
   fillSet' set _       []     = set
-  fillSet' set oldSize (x:xs) =
+  fillSet' set oldSize (x@(Position a b):xs)
+    | abs (a-b) > (n `div` 4) + 1 = fillSet' set oldSize xs
+    | otherwise =
     let newSet = S.insert x set
         newSize = S.size newSet
     in if oldSize == newSize
        then set
        else fillSet' newSet newSize xs
-
+{-
 
 fromList :: [Position] -> S.Set Position
 fromList [] = S.empty
@@ -58,23 +60,23 @@ foldlStrict f = go
 {-# INLINE foldlStrict #-}
 -}
 stations :: Int -> S.USet Position
-stations n = S.insert (Position 0 0) . S.fromList . take (2*n+1) . stationsList $ n
+stations n = S.insert (Position 0 0) . fillSetWithoutCycles n . take (2*n+1) . stationsList $ n
 {-# INLINE stations #-}
 
-process :: Position -> M.IntMap Int -> M.IntMap Int
-process (Position _ y) m =
-  let Just (_, max) = M.lookupGE y m
+process :: M.IntMap Int -> Position -> M.IntMap Int
+process m (Position _ y) =
+  let Just (_, max) = M.lookupLE y m
       newVal = max+1
       m' = M.insert y newVal m
-      m'' = case M.lookupLT y m of
+      m'' = case M.lookupGT y m of
               Just (k, v) -> if v>newVal then m' else M.delete k m'
               Nothing     -> m'
   in m''
 {-# INLINE process #-}
 
 lengths n =
-  let m = M.singleton n (-1) 
-  in S.fold process m (stations n)
+  let m = M.singleton 0 (-1) 
+  in S.foldl' process m (stations n)
 
 -- |
 -- 
@@ -88,7 +90,7 @@ lengths n =
 -- 48
 -- 
 maxPathLength :: Int -> Int
-maxPathLength = snd . M.findMin . lengths
+maxPathLength = snd . M.findMax . lengths
 
 main = do
   args <- getArgs
