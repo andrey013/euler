@@ -29,7 +29,7 @@ decycle proc = fillMap' M.empty 0 proc
          Just i  -> (i, c - i)
          Nothing -> fillMap' newMap (c + 1) xs
 
-positions n = (M.fromList $ (0, 0):uniques, xsList, V.fromList yy)
+positions n = (M.fromList $ uniques, xsList, V.fromList yy)
  where
   (offsetx, lengthx) = decycle $ xsGen n
   (offsety, lengthy) = decycle $ ysGen n
@@ -37,24 +37,25 @@ positions n = (M.fromList $ (0, 0):uniques, xsList, V.fromList yy)
   uniques = take nou $ zip (xsGen n) (ysGen n)
   xx = take lengthx $ drop nou $ xsGen n
   yy = take lengthy $ drop nou $ ysGen n
-  xsList = V.modify (VA.sort) $ V.fromList $ zip xx $ cycle [0..lengthy-1]
+  xsList = V.modify (VA.sort) $ V.zip (V.fromList xx) (V.fromList $ map (`mod` lengthy) [0..lengthx-1])
 
-stations :: Int -> [S.IntSet]
-stations n = snd $ V.foldl' (\ (map, l) x -> let (newMap, list) = (createSets x map l) in (newMap, list)) (u, []) xs
+stations :: Int -> M.IntMap Integer
+stations n = M.foldl' (\map y -> process map y) r u'
  where
+  (u', r) = V.foldl' (\(uMap, lMap) x -> let (newUMap, newLMap) = (createSets x uMap lMap) in newLMap `seq` (newUMap, newLMap)) (u, M.singleton 0 0) xs
   (u, xs, ys) = positions n
   interval = V.length xs
   ysCount = V.length ys
 
-  createSets :: (Int, Int) -> M.IntMap Int -> [S.IntSet] -> (M.IntMap Int, [S.IntSet])
-  createSets xx@(x, i) map acc =
-    case M.lookupGE 0 map of
+  createSets :: (Int, Int) -> M.IntMap Int -> M.IntMap Integer -> (M.IntMap Int, M.IntMap Integer)
+  createSets xx@(x, i) uMap lMap =
+    case M.lookupGE 0 uMap of
       Just (mx, my) -> if mx == x
-                       then (M.delete mx map, (S.insert my $ createSet xx) : acc)
+                       then (M.delete mx uMap, S.foldl' process lMap (S.insert my $ createSet xx))
                        else if mx < x
-                            then createSets xx (M.delete mx map) $ (S.singleton my) : acc
-                            else (map, (createSet xx) : acc)
-      Nothing       -> (map, (createSet xx) : acc)
+                            then createSets xx (M.delete mx uMap) $ process lMap my
+                            else (uMap, S.foldl' process lMap $ createSet xx)
+      Nothing       -> (uMap, S.foldl' process lMap $ createSet xx)
 
   createSet (x, i) = S.fromList .
                      map (V.unsafeIndex ys) .
@@ -63,20 +64,20 @@ stations n = snd $ V.foldl' (\ (map, l) x -> let (newMap, list) = (createSets x 
                      iterate (\i -> (i + interval) `mod` ysCount) $ (i + interval) `mod` ysCount
 {-# INLINE stations #-}
 
-process :: M.IntMap Int -> Int -> M.IntMap Int
-process m y =
+process :: M.IntMap Integer -> Int -> M.IntMap Integer
+process !m !y =
   let Just (_, max) = M.lookupLE y m
-      newVal = max+1
+      !newVal = max+1
       m' = M.insert y newVal m
       m'' = case M.lookupGT y m of
               Just (k, v) -> if v>newVal then m' else M.delete k m'
               Nothing     -> m'
-  in m''
+  in m'' `seq` m''
 {-# INLINE process #-}
 
-lengths n =
-  let map = M.singleton 0 (-1) 
-  in foldr (flip $ S.foldl' process) map (stations n)
+--lengths n =
+--  let map = M.singleton 0 (-1) 
+--  in foldr (flip $ S.foldl' process) map (stations n)
 
 -- |
 -- 
@@ -89,11 +90,11 @@ lengths n =
 -- >>> maxPathLength 10000
 -- 48
 -- 
-maxPathLength :: Int -> Int
-maxPathLength = snd . M.findMax . lengths
+maxPathLength :: Int -> Integer
+maxPathLength = snd . M.findMax . stations
 
 main = do
   args <- getArgs
   let n = read $ head args
-  print $ sum . parMap rseq maxPathLength . map (^5) $ [1..n]
+  print $ sum . parMap rseq maxPathLength . map (^5) $ [n..n]
   --print $ stations $ n^5
