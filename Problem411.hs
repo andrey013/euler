@@ -13,9 +13,11 @@ import qualified Data.Vector.Unboxed as V
 import qualified Data.Vector.Algorithms.Intro as VA
 
 xsGen :: Int -> [Int]
+xsGen 1 = take (2*1+1) $ repeat 0
 xsGen n = take (2*n+1) $ iterate (\x -> 2*x `mod` n) 1
 
 ysGen :: Int -> [Int]
+ysGen 1 = take (2*1+1) $ repeat 0
 ysGen n = take (2*n+1) $ iterate (\y -> 3*y `mod` n) 1
 
 decycle
